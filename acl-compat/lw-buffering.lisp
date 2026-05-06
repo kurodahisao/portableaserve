@@ -207,8 +207,17 @@
     (etypecase sequence
       (simple-vector (loop for i from start below end
                            do (funcall writer-fn stream (svref sequence i))))
-      (vector (loop for i from start below end
-                    do (funcall writer-fn stream (aref sequence i))))
+      (vector
+       (when (and (stringp sequence)
+                  (loop for i from start below end
+                        for ch across sequence thereis (>= (char-code ch) 256)))
+         (setq sequence (sb-ext:string-to-octets (subseq sequence start end))
+               end (length sequence)))
+         (if (stringp sequence)
+           (loop for i from start below end
+                 do (funcall writer-fn stream (aref sequence i)))
+           (loop for i from start below end
+                 do (funcall #'flexi-streams::stream-write-byte stream (aref sequence i)))))
       (list (loop for i from start below end
                   for c in (nthcdr start sequence)
                   do (funcall writer-fn stream c))))))

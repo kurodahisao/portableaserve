@@ -1,6 +1,6 @@
-;; load in aserve
+2;; load in aserve
 ;;
-;; $Id: load.cl,v 1.5 2004/04/26 18:18:37 kevinrosenberg Exp $
+;; $Id: load.cl,v 1.69 2008/02/04 21:02:24 jkf Exp $
 ;;
 
 ;
@@ -29,12 +29,12 @@
       "client"
       "proxy"
       "cgi"
+      "playback"
       ))
 
 (defparameter *aserve-other-files*
     ;; other files that make up the aserve dist
-    '("readme.txt"
-      "source-readme.txt"
+    '("README.md"
       "ChangeLog"
       "htmlgen/ChangeLog"
       "license-lgpl.txt"
@@ -71,7 +71,6 @@
       "doc/aserve.html"
       "doc/tutorial.html"
       "doc/htmlgen.html"
-      "doc/cvs.html"
       ))
 
 (defparameter *aserve-examples*
@@ -256,7 +255,9 @@ passed a non-logical pathname"
 ;; 7. (ftp-publish-src)
 ;; 8. on cobweb in /fi/opensource/src/aserve 
 ;;    do cvs update to put code on opensource site
-;; 9. on spot run /fi/sa/bin/aserve-sync
+;; 9. on cobweb as root do:
+;;    rsh cvs 'cd /repository/cvs-public/aserve && rsync -a --delete /cvs/aserve/ . && chgrp -R cvspublic .'
+;;
 ;; 10. ftp upload.sourceforge.net and put the tar file in the
 ;;     incoming directory, then go to the aserve sourceforge web page and 
 ;;     select the file manager and publish it.
@@ -309,7 +310,7 @@ passed a non-logical pathname"
 	   aserve-version-name)
    :show-window :hide)
   (run-shell-command 
-   (format nil "cp ~aaserve-src/~a.tgz /net/cobweb/home/ftp/pub/aserve"
+   (format nil "cp ~aaserve-src/~a.tgz /fi/ftp/pub/aserve"
 	   *aserve-root*
 	   aserve-version-name)
    :show-window :hide))
@@ -317,7 +318,7 @@ passed a non-logical pathname"
 (defun publish-docs ()
   ;; copy documentation to the external web site
   (run-shell-command
-   (format nil "cp ~adoc/htmlgen.html ~adoc/aserve.html ~adoc/tutorial.html /net/cobweb/www/opensource/devel/www/aserve"
+   (format nil "cp ~adoc/htmlgen.html ~adoc/aserve.html ~adoc/tutorial.html /fi/www/sites/opensource/devel/www/aserve"
 	   *aserve-root*
 	   *aserve-root*
 	   *aserve-root*)
@@ -337,7 +338,10 @@ passed a non-logical pathname"
   
   (let ((buffer (make-array 4096 :element-type '(unsigned-byte 8))))
     (with-open-file (p dest :direction :output :if-exists :supersede
-		     :element-type '(unsigned-byte 8))
+		     #-(and allegro (version>= 6))
+		     :element-type
+		     #-(and allegro (version>= 6))
+		     '(unsigned-byte 8))
       (if* verbose
 	 then (format t "Creating ~s~%" dest))
       (dolist (file files)
@@ -345,7 +349,11 @@ passed a non-logical pathname"
 	(if* (and (null (pathname-type file))
 		  (not (probe-file file)))
 	   then (setq file (concatenate 'string file  ".fasl")))
-	(with-open-file (in file :element-type '(unsigned-byte 8))
+	(with-open-file (in file
+			 #-(and allegro (version>= 6))
+			 :element-type
+			 #-(and allegro (version>= 6))
+			 '(unsigned-byte 8))
 	  (loop
 	    (let ((count (read-sequence buffer in)))
 	      (if* (<= count 0) then (return))

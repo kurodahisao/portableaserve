@@ -2,7 +2,8 @@
 ;;
 ;; htmlgen.cl
 ;;
-;; copyright (c) 1986-2000 Franz Inc, Berkeley, CA 
+;; copyright (c) 1986-2005 Franz Inc, Berkeley, CA  - All rights reserved.
+;; copyright (c) 2000-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -24,7 +25,7 @@
 ;;
 
 ;;
-;; $Id: htmlgen.cl,v 1.9 2008/08/15 00:30:14 kevinrosenberg Exp $
+;; $Id: htmlgen.cl,v 1.27 2007/04/17 22:05:04 layer Exp $
 
 ;; Description:
 ;;   html generator
@@ -56,6 +57,8 @@
 ;; binary data (e.g. images) and text data (e.g. HTML). This kludge
 ;; solves this problem at the cost of I/O performance.
 
+(defparameter *default-external-format* :utf-8)
+
 (defun write-html-string (string &optional stream &key (start 0) end)
   (if (and stream (equal (stream-element-type stream)
                          '(unsigned-byte 8)))
@@ -63,7 +66,11 @@
             :do (write-byte (char-code (schar string i)) stream))
 ;     (loop :for c :across (subseq string start end)
 ;           :do (write-byte (char-code c) stream))
-      (write-string string stream :start start :end (or end (length string)))))
+    #-sbcl
+      (write-string string stream :start start :end (or end (length string)))
+    #+sbcl
+      (let ((text (sb-ext:string-to-octets string :start start :end end :external-format *default-external-format*)))
+        (write-sequence text stream))))
 
 ;; html generation
 
@@ -145,7 +152,7 @@
 	    (form (car xforms) (car xforms)))
 	  ((null xforms))
 
-	(setq form (macroexpand form env))
+	(setq form (macroexpand form env  #+(and allegro (version>= 7 0)) t))
 	
 	(if* (atom form)
 	   then (if* (keywordp form)
@@ -639,7 +646,7 @@
 (def-std-html :blockquote  t nil)
 (def-std-html :body      t nil)
 (def-std-html :br       nil nil)
-(def-std-html :button   nil nil)
+(def-std-html :button   t nil)
 
 (def-std-html :caption  t nil)
 (def-std-html :center   t nil)
@@ -749,3 +756,7 @@
 (def-std-html :wbr  	nil nil)
 
 (def-std-html :xmp 	t nil)
+
+(def-std-html :time t nil)
+(def-std-html :datalist t nil)
+(def-std-html :!doctype nil nil)

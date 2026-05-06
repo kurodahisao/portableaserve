@@ -2,8 +2,8 @@
 ;;
 ;; cgi.cl
 ;;
-;; copyright (c) 1986-2000 Franz Inc, Berkeley, CA  - All rights reserved.
-;; copyright (c) 2000-2004 Franz Inc, Oakland, CA - All rights reserved.
+;; copyright (c) 1986-2005 Franz Inc, Berkeley, CA  - All rights reserved.
+;; copyright (c) 2000-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -24,7 +24,7 @@
 ;; Suite 330, Boston, MA  02111-1307  USA
 ;;
 ;;
-;; $Id: cgi.cl,v 1.9 2005/02/20 12:20:45 rudi Exp $
+;; $Id: cgi.cl,v 1.13 2007/04/17 22:05:04 layer Exp $
 
 ;; Description:
 ;;   common gateway interface (running external programs)
@@ -46,6 +46,7 @@
 			(timeout 200)
 			error-output
 			env
+			terminate
 			)
   ;; program is a string naming a external command to run.
   ;; invoke the program after setting all of the environment variables
@@ -58,6 +59,9 @@
   ;;   :output - mix in the error output with the output
   ;;   function - call function when input's available from the error 
   ;;		stream
+  
+  (declare (ignorable terminate)) ; not used in Windows
+  
   (let ((envs (list '("GATEWAY_INTERFACE" . "CGI/1.1")
 		    `("SERVER_SOFTWARE" 
 		      . ,(format nil "AllegroServe/~a"
@@ -218,9 +222,29 @@
 	(if* from-script-error-stream
 	   then (ignore-errors (close from-script-error-stream)))
 	(if* pid
-	   then ;; it may be bad to wait here...
-		(acl-compat.mp:with-timeout (60) ; ok w-t
-		  (acl-compat.sys:reap-os-subprocess :pid pid :wait t)))))))
+	   then ;; wait for process to die
+		(if* (null (acl-compat.sys:reap-os-subprocess :pid pid :wait nil))
+		   then ; not ready to die yet, but someone 
+			; should wait for it to die while we return
+			#+unix 
+			(if* terminate
+			   then ; forceably kill
+				(progn (unix-kill pid 15) ; sigterm
+				       (sleep 2) ; give it a chance to die
+				       (if* (acl-compat.sys:reap-os-subprocess :pid pid :wait nil)
+					  then (setq pid nil) ; indicate killed
+					  else (unix-kill pid 9) ; kill
+					       )))
+				       
+			(if* pid
+			   then ; must have someone wait for the death
+				(acl-compat.mp::process-run-function "reaper"
+				  #'(lambda () 
+				      (dotimes (i 10)
+					(sleep (+ 2 (* i 10)))
+					(if* (acl-compat.sys:reap-os-subprocess :pid pid
+								     :wait nil)
+					   then (return))))))))))))
 
 
 (defun read-script-data (req ent stream error-stream error-fcn timeout)

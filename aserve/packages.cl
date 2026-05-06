@@ -1,9 +1,35 @@
+#+(and allegro (version= 8 1))
+(sys:defpatch "aserve" 3
+  "v1: version 1.2.56, large request body & multipart content type & more;
+v2: version 1.2.58, fix problem introduced in 1.2.56 where the response date 
+  is always the zero universal time & correctly send out the comment after
+  the result code;
+v3: version 1.2.60: uriencode-string: use uppercase hex chars for EC2."
+  :type :system
+  :post-loadable t)
+
+#+(and allegro (version= 8 0))
+(sys:defpatch "aserve" 5
+  "v1: version 1.2.45;
+v2: version 1.2.46;
+v3: version 1.2.47;
+v4: version 1.2.48, handle HTTP `204 No Content';
+v5: version 1.2.50, Enhanced SSL client/server support."
+  :type :system
+  :post-loadable t)
+
+#+(and allegro (version= 7 0))
+(sys:defpatch "aserve" 2
+  "v2: version 1.2.45."
+  :type :system
+  :post-loadable t)
+
 ;; -*- mode: common-lisp; package: net.aserve -*-
 ;;
 ;; packages.cl
 ;;
-;; copyright (c) 1986-2002 Franz Inc, Berkeley, CA  - All rights reserved.
-;; copyright (c) 2002-2004 Franz Inc, Oakland, CA - All rights reserved.
+;; copyright (c) 1986-2005 Franz Inc, Berkeley, CA  - All rights reserved.
+;; copyright (c) 2002-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -24,7 +50,7 @@
 ;; Suite 330, Boston, MA  02111-1307  USA
 ;;
 ;;
-;; $Id: packages.cl,v 1.6 2005/02/20 12:20:45 rudi Exp $
+;; $Id: packages.cl,v 1.22 2009/02/24 19:04:17 layer Exp $
 
 ;; Description:
 ;;   packages and exports for AllegroServe
@@ -150,11 +176,14 @@
    #:*http-response-timeout*
    #:*mime-types*
    #:*response-accepted*
+   #:*response-no-content*
    #:*response-bad-request*
    #:*response-continue*
    #:*response-created*
    #:*response-found*
    #:*response-internal-server-error*
+   #:*response-no-content*
+   #:*response-non-authoritative-information*
    #:*response-not-found*
    #:*response-not-modified*
    #:*response-ok*
@@ -206,6 +235,7 @@
    #:client-request-socket
    #:client-request-uri
    #:client-response-header-value
+   #:compute-digest-authorization
    #:cookie-item
    #:cookie-item-expires
    #:cookie-item-name
@@ -213,7 +243,12 @@
    #:cookie-item-secure
    #:cookie-item-value
    #:cookie-jar     ; class
+   #:digest-authorization
+   #:digest-password
+   #:digest-realm
+   #:digest-username
    #:do-http-request
+   #:http-copy-file
    #:make-http-client-request
    #:read-client-response-headers
    ))

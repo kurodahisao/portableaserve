@@ -23,13 +23,14 @@
         #+(or allegro cormanlisp) :excl
         #+(or mcl openmcl) :ccl
         )
-  #+lispworks (:import-from :common-lisp #:fixnump)
+  #+lispworks (:import-from :lispworks #:fixnump)
   #+sbcl (:import-from :sb-int #:fixnump)
   #+sbcl (:import-from :sb-ext #:without-package-locks)
   #+sbcl (:import-from :sb-ext #:string-to-octets)
   #+cmu (:import-from :ext #:without-package-locks)
   #+allegro (:shadowing-import-from :excl #:filesys-size
 	    #:filesys-write-date #:intern* #:filesys-type #:atomically #:fast)
+  #+(or mcl openmcl) (:shadowing-import-from :ccl #:fixnump)
   (:export
    #:if*
    #:*initial-terminal-io*
@@ -53,6 +54,9 @@
    #+(or allegro mcl openmcl) #:fasl-write
    #+(or allegro cmu scl mcl lispworks openmcl sbcl) #:string-to-octets
    #+(or allegro cmu scl mcl lispworks openmcl sbcl) #:write-vector
+   #:md5-init
+   #:md5-update
+   #:md5-final
    ))
 
 
@@ -148,6 +152,7 @@
    #:command-line-arguments
    #:command-line-argument
    #:reap-os-subprocess
+   #:make-temp-file-name
    ))
 
 

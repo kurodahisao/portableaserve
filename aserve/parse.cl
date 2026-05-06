@@ -3,8 +3,8 @@
 ;; parse.cl
 ;;
 ;;
-;; copyright (c) 1986-2000 Franz Inc, Berkeley, CA  - All rights reserved.
-;; copyright (c) 2000-2004 Franz Inc, Oakland, CA - All rights reserved.
+;; copyright (c) 1986-2005 Franz Inc, Berkeley, CA  - All rights reserved.
+;; copyright (c) 2000-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -26,7 +26,7 @@
 ;;
 
 ;;
-;; $Id: parse.cl,v 1.13 2007/02/25 12:21:52 rudi Exp $
+;; $Id: parse.cl,v 1.42 2007/04/17 22:05:04 layer Exp $
 
 ;; Description:
 ;;   parsing and encoding code  
@@ -49,7 +49,7 @@
   (max  parseobj-size)
   )
 
-(defvar *parseobjs* nil)
+(defvar *parseobjs* nil) 
 (defvar *parseobj-lock* (acl-compat.mp:make-process-lock :name "Parse object lock"))
 
 (defun allocate-parseobj ()
@@ -363,12 +363,13 @@
 (defun header-value-member (val parsed-value)
   ;; test to see if the given value is a member of the list
   ;; of values in the parsed value.  parse the value if needed
-  (setq parsed-value (ensure-value-parsed parsed-value))
-  (dolist (par parsed-value)
-    (if* (consp par)
-       then (setq par (cadr par)))
-    (if* (equalp val par)
-       then (return t))))
+  (if* parsed-value
+     then (setq parsed-value (ensure-value-parsed parsed-value))
+	  (dolist (par parsed-value)
+	    (if* (consp par)
+	       then (setq par (cadr par)))
+	    (if* (equalp val par)
+	       then (return t)))))
 
 (defun ensure-value-parsed (str &optional singlep)
   ;; parse the header value if it hasn't been parsed.
@@ -455,6 +456,48 @@
     
     (nreverse res)))
     
+
+
+
+(defun parse-header-line-equals (str &optional (start 0) (end (length str)))
+  ;; parse a header line consisting of comma separated values
+  ;;
+  ;;  a=b, c="d asd",  e="fff"
+  ;;
+  ;; return (("a" . "b") ("c" . "d asd") ("e" . "fff"))
+  ;;
+  (let ((po (allocate-parseobj))
+	(res))
+    
+    (unwind-protect
+	(progn
+	  (split-string str #\, nil nil po start end)
+	  
+	  (do ((i 0 (1+ i))
+	       (max (parseobj-next po))
+	       (paramkey nil nil)
+	       (paramvalue nil nil))
+	      
+	      ((>= i max))
+	    
+	    (split-string str #\= nil 1 po
+				(svref (parseobj-start po) i)
+				(svref (parseobj-end   po) i))
+	    
+	    (setq paramkey (trimmed-parseobj str po max))
+	    
+	    (if* (> (parseobj-next po) (1+ max))
+		     then ; must have been an equal
+			  (setq paramvalue (trimmed-parseobj str po
+							     (1+ max))))
+	    
+	    (push (cons paramkey paramvalue) res)
+	    
+	    (setf (parseobj-next po) max)))
+      
+      (free-parseobj po))
+      
+    (nreverse res)))
 
 (defun assoc-paramval (key paramvals)
   ;; search the paramvals for the given key.

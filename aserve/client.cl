@@ -2,8 +2,8 @@
 ;;
 ;; client.cl
 ;;
-;; copyright (c) 1986-2000 Franz Inc, Berkeley, CA  - All rights reserved.
-;; copyright (c) 2000-2004 Franz Inc, Oakland, CA - All rights reserved.
+;; copyright (c) 1986-2005 Franz Inc, Berkeley, CA  - All rights reserved.
+;; copyright (c) 2000-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -24,7 +24,7 @@
 ;; Suite 330, Boston, MA  02111-1307  USA
 ;;
 ;;
-;; $Id: client.cl,v 1.19 2007/02/25 12:21:52 rudi Exp $
+;; $Id: client.cl,v 1.58 2007/12/26 19:02:27 jkf Exp $
 
 ;; Description:
 ;;   http client code.
@@ -58,7 +58,7 @@
     :initarg :method
     :accessor client-request-method)
    
-   (headers ; alist of  ("headername" . "value")
+   (headers ; alist of  ("headername" . "value") or (:headername . "value")
     :initform nil
     :initarg :headers
     :accessor client-request-headers)
@@ -91,16 +91,56 @@
    ))
 
 
+(defclass digest-authorization ()
+  ((username :initarg :username
+	     :initform ""
+	     :reader digest-username)
+   
+   (password :initarg :password
+	     :initform ""
+	     :reader digest-password)
+   
+   (realm    :initform ""
+	     :accessor digest-realm)
+   
+   (uri       :initform nil
+	      :accessor digest-uri)
+   
+   (qop	     :initform nil
+	     :accessor digest-qop)
+   
+   (nonce    :initform ""
+	     :accessor digest-nonce)
+   
+   ; we sent unique cnonce each time
+   (nonce-count :initform "1"
+		:reader digest-nonce-count)
+
+   (cnonce   :initform nil
+	     :accessor digest-cnonce)
+   
+   (opaque   :initform nil
+	     :accessor digest-opaque)
+   
+   (response :initform nil
+	     :accessor digest-response)
+   
+   ))
+
+
 (defvar crlf (make-array 2 :element-type 'character
 			 :initial-contents '(#\return #\linefeed)))
 
 (defmacro with-better-scan-macros (&body body)
   ;; define the macros for scanning characters in a string
-  `(macrolet ((collect-to (ch buffer i max &optional downcasep)
+  `(macrolet ((collect-to (ch buffer i max &optional downcasep eol-ok)
 		;; return a string containing up to the given char
 		`(let ((start ,i))
 		   (loop
-		     (if* (>= ,i ,max) then (fail))
+		     (if* (>= ,i ,max) 
+			then ,(if* eol-ok
+				 then `(return (buf-substr start ,i ,buffer ,downcasep))
+				 else `(fail)))
 		     (if* (eql ,ch (schar ,buffer ,i)) 
 			then (return (buf-substr start ,i ,buffer ,downcasep)))
 		     (incf ,i)
@@ -127,8 +167,8 @@
 		`(loop
 		   (if* (>= ,i ,max) 
 		      then ,(if* errorp 
-			      then `(fail)
-			      else `(return)))
+			       then `(fail)
+			       else `(return)))
 		   (if* (not (eq ,ch (schar ,buffer ,i)))
 		      then (return))
 		   (incf ,i)))
@@ -163,13 +203,26 @@
 			(redirect 5) ; auto redirect if needed
 			(redirect-methods '(:get :head))
 			basic-authorization  ; (name . password)
+			digest-authorization ; digest-authorization object
 			keep-alive   ; if true, set con to keep alive
 			headers	    ; extra header lines, alist
 			proxy	    ; naming proxy server to access through
+			proxy-basic-authorization  ; (name . password)
 			user-agent
 			(external-format *default-aserve-external-format*)
 			ssl		; do an ssl connection
 			skip-body ; fcn of request object
+			timeout
+			certificate
+			key
+			certificate-password
+			ca-file
+			ca-directory
+			verify
+			max-depth
+			
+			;; internal
+			recursing-call ; true if we are calling ourself
 			)
   
   ;; send an http request and return the result as four values:
@@ -184,12 +237,22 @@
 	       :query query
 	       :cookies cookies
 	       :basic-authorization basic-authorization
+	       :digest-authorization digest-authorization
 	       :keep-alive keep-alive
 	       :headers headers
 	       :proxy proxy
+	       :proxy-basic-authorization proxy-basic-authorization
 	       :user-agent user-agent
 	       :external-format external-format
 	       :ssl ssl
+	       :timeout timeout
+	       :certificate certificate
+	       :key key
+	       :certificate-password certificate-password
+	       :ca-file ca-file
+	       :ca-directory ca-directory
+	       :verify verify
+	       :max-depth max-depth
 	       )))
 
     (unwind-protect
@@ -201,6 +264,7 @@
 	    (if* (not (eql 100 (client-request-response-code creq)))
 	       then (return)))
 	  
+		  
 	  (if* (and (member (client-request-response-code creq)
 			    '(#.(net.aserve::response-number *response-found*)
 			      #.(net.aserve::response-number *response-moved-permanently*)
@@ -216,12 +280,35 @@
 		  (setq new-location
 		    (cdr (assoc :location (client-request-headers creq)
 				:test #'eq))))
+	
+	  (if* (and digest-authorization
+		    (equal (client-request-response-code creq)
+			   #.(net.aserve::response-number 
+			      *response-unauthorized*))
+		    (not recursing-call))
+	     then ; compute digest info and retry
+		  (if* (compute-digest-authorization 
+			creq digest-authorization)
+		     then (client-request-close creq)
+			  (return-from do-http-request
+			    (apply #'do-http-request
+				   uri
+				   :recursing-call t
+				   args))))
+		  
+		  
 	  
-	  (if* (and (null new-location) 
-		    ; not called when redirecting
-		    (if* (functionp skip-body)
-		       then (funcall skip-body creq)
-		       else skip-body))
+	  (if* (or (and (null new-location) 
+			; not called when redirecting
+			(if* (functionp skip-body)
+			   then (funcall skip-body creq)
+			   else skip-body))
+		   (member (client-request-response-code creq)
+			   ' (#.(net.aserve::response-number 
+				 *response-no-content*)
+				#.(net.aserve::response-number 
+				   *response-not-modified*)
+			      )))
 	     then
 		  (return-from do-http-request
 		    (values 
@@ -262,8 +349,7 @@
 	    (if* res
 	       then			; multiple items
 		    (let* ((total-size (+ (* 1024 (length res)) start))
-			   (bigarr (make-array total-size :element-type '(unsigned-byte 8)) ; was atype)
-                             ))
+			   (bigarr (make-array total-size :element-type '(unsigned-byte 8)))) ; was atype)
 		      (let ((sstart 0))
 			(dolist (arr (reverse res))
 			  (replace bigarr arr :start1 sstart)
@@ -304,14 +390,173 @@
       (client-request-close creq))))
 
 
-    
+
+
+
+
+(defun http-copy-file (url pathname
+		       &rest args
+		       &key (if-does-not-exist :error)
+			    proxy
+			    proxy-basic-authorization
+			    (redirect 5)
+			    (buffer-size 1024)
+			    (headers nil)
+			    (protocol :http/1.1)
+			    (basic-authorization nil)
+			    (progress-function nil)
+			    (tmp-name-function
+			     (lambda (pathname)
+			       (format nil "~a.tmp" pathname)))
+			    timeout
+		       &aux (redirect-codes
+			     '(#.(net.aserve::response-number
+				  *response-found*)
+			       #.(net.aserve::response-number
+				  *response-moved-permanently*)
+			       #.(net.aserve::response-number
+				  *response-see-other*))))
+  (ensure-directories-exist pathname)
+  (let ((uri (puri:parse-uri url))
+	(creq 
+	 (make-http-client-request
+	  url
+	  :headers headers
+	  :protocol protocol
+	  :basic-authorization basic-authorization
+	  :proxy proxy
+	  :proxy-basic-authorization proxy-basic-authorization))
+	(buf (make-array buffer-size :element-type '(unsigned-byte 8)))
+	end
+	code
+	new-location
+	s
+	tmp-pathname
+	(bytes-read 0)
+	size
+	temp
+	progress-at)
+    (unwind-protect
+	(progn
+	  (if* progress-function
+	     then (multiple-value-bind (res code hdrs)
+		      (do-http-request url
+			:method :head
+			:proxy proxy
+			:proxy-basic-authorization proxy-basic-authorization
+			:headers headers
+			:protocol protocol
+			:basic-authorization basic-authorization)
+		    (declare (ignore res))
+		    (if* (not (eql 200 code))
+		       then (error "~a: code ~a" url code))
+		    (handler-case
+			(setq size
+			  (parse-integer
+			   (or (setq temp
+				 (cdr (assoc :content-length hdrs :test #'eq)))
+			       (error "Cannot determine content length for ~a."
+				      url))))
+		      (error ()
+			(error "Cannot parse content-length: ~a." temp)))
+	      
+		    (do ((n 9 (1- n))
+			 (size size))
+			((= n 0))
+		      (push (truncate (* size (/ n 10))) progress-at))))
+	  
+	  (setq tmp-pathname (funcall tmp-name-function pathname))
+	  (setq s (open tmp-pathname :direction :output
+			;; bug16130: in case one was left laying around:
+			:if-exists :supersede))
+
+	  (loop
+	    (read-client-response-headers creq)
+	    ;; if it's a continue, then start the read again
+	    (if* (not (eql 100 (client-request-response-code creq)))
+	       then (return)))
+	  
+	  (if* (and (member (client-request-response-code creq)
+			    redirect-codes :test #'eq)
+		    redirect
+		    (if* (integerp redirect)
+		       then (> redirect 0)
+		       else t))	; unrestricted depth
+	     then (setq new-location
+		    (cdr (assoc :location (client-request-headers creq)
+				:test #'eq))))
 		
-		
-		
-		
-		
-		
-		      
+	  (loop
+	    (if* (and timeout (numberp timeout))
+	       then (let ((res (acl-compat.mp:with-timeout (timeout :timed-out)
+				 (setq end
+				   (client-request-read-sequence buf creq)))))
+		      (if* (eq :timed-out res)
+			 then (error "~a is not responding."
+				     (puri:uri-host uri))))
+	       else (setq end (client-request-read-sequence buf creq)))
+	    (if* (zerop end)
+	       then (if* progress-function 
+		       then (funcall progress-function -1 size))
+		    (return)) ;; EOF
+	    (if* progress-at
+	       then (incf bytes-read buffer-size)
+		    (if* (> bytes-read (car progress-at))
+		       then (setq progress-at (cdr progress-at))
+			    (ignore-errors (funcall progress-function bytes-read
+						    size))))
+	    (write-sequence buf s :end end))
+	    
+	  (setq code (client-request-response-code creq))
+	  
+	  (if* new-location
+	     then (client-request-close creq)
+		  (close s)
+		  (setq s nil)
+		  ;; created above, 0 length
+		  (delete-file tmp-pathname)
+		  (setq new-location (puri:merge-uris new-location url))
+		  (return-from http-copy-file
+		    (apply #'http-copy-file new-location pathname
+			   :redirect (if* (integerp redirect)
+					then (1- redirect)
+					else redirect)
+			   args))
+	   elseif (eql 404 code)
+	     then (let ((fs "~a does not exist."))
+		    (if* (eq :error if-does-not-exist)
+		       then (error fs url)
+		       else (warn fs url)
+			    (return-from http-copy-file nil)))
+	   elseif (not (eql 200 code))
+	     then (error "Bad code from webserver: ~s." code))
+	  
+	  (close s)
+	  (setq s nil)
+	  (rename-file-raw tmp-pathname pathname))
+      
+      (if* s
+	 then ;; An error occurred.
+	      (close s)
+	      (ignore-errors (delete-file tmp-pathname))
+	      (ignore-errors (delete-file pathname)))
+      (client-request-close creq))
+    t))
+
+
+
+(defmacro with-socket-connect-timeout ((&key timeout host port)
+				       &body body)
+  ;;
+  ;; to wrap around a call to make-socket
+  ;;
+  `(acl-compat.mp:with-timeout ((or ,timeout 99999999)
+		     (error "Connecting to host ~a port ~a timed out after ~s seconds"
+			    ,host ,port ,timeout))
+     ,@body))
+
+
+
 
 
 
@@ -322,19 +567,32 @@
 				     (accept "*/*") 
 				     cookies  ; nil or a cookie-jar
 				     basic-authorization
+				     digest-authorization
 				     content
 				     content-length 
 				     content-type
 				     query
 				     headers
 				     proxy
+				     proxy-basic-authorization
 				     user-agent
 				     (external-format 
 				      *default-aserve-external-format*)
 				     ssl
+				     timeout
+				     certificate
+				     key
+				     certificate-password
+				     ca-file
+				     ca-directory
+				     verify
+				     max-depth
 				     )
   
 
+  (declare (ignorable timeout certificate key certificate-password ca-file 
+		      ca-directory verify max-depth))
+  
   (let (host sock port fresh-uri scheme-default-port)
     ;; start a request 
   
@@ -373,24 +631,43 @@
 		 then (error "proxy arg should have form \"foo.com\" ~
 or \"foo.com:8000\", not ~s" proxy))
 	      
-	      (setq sock (acl-compat.socket:make-socket :remote-host phost
-					     :remote-port pport
-					     :format :bivalent
-					     :type net.aserve::*socket-stream-type*
-					     :nodelay t
-					     )))
+	      (setq sock 
+		(with-socket-connect-timeout (:timeout timeout
+						       :host phost 
+						       :port pport)
+		  (acl-compat.socket:make-socket :remote-host phost
+				      :remote-port pport
+				      :format :bivalent
+				      :type net.aserve::*socket-stream-type*
+				      :nodelay t
+				      ))))
        else (setq sock 
-	      (acl-compat.socket:make-socket :remote-host host
-				  :remote-port port
-				  :format :bivalent
-				  :type 
-				  net.aserve::*socket-stream-type*
-				  :nodelay t
+	      (with-socket-connect-timeout (:timeout timeout
+						     :host host
+						     :port port)
+		(acl-compat.socket:make-socket :remote-host host
+				    :remote-port port
+				    :format :bivalent
+				    :type 
+				    net.aserve::*socket-stream-type*
+				    :nodelay t
 					     
-				  ))
+				    )))
 	    (if* ssl
-	       then (setq sock
-		      (funcall 'acl-compat.socket::make-ssl-client-stream sock)))
+	       then #+(and allegro (version>= 8 0))
+		    (setq sock
+		      (funcall 'socket::make-ssl-client-stream sock 
+			       :certificate certificate
+			       :key key
+			       :certificate-password certificate-password
+			       :ca-file ca-file
+			       :ca-directory ca-directory
+			       :verify verify
+			       :max-depth max-depth))
+		    #-(and allegro (version>= 8 0))
+		    (setq sock
+		      (funcall 'acl-compat.socket::make-ssl-client-stream sock))
+		    )
 	    )
 
     #+(and allegro (version>= 6 0))
@@ -403,6 +680,14 @@ or \"foo.com:8000\", not ~s" proxy))
        then (schedule-finalization 
 	     sock 
 	     #'net.aserve::check-for-open-socket-before-gc))
+    
+    #+io-timeout
+    (if* (integerp timeout)
+       then (socket:socket-control 
+	     sock 
+	     :read-timeout timeout
+	     :write-timeout timeout))
+	    
     
     (if* query
        then (case method
@@ -458,7 +743,7 @@ or \"foo.com:8000\", not ~s" proxy))
                   ;;strings are not character arrays
 		  ((or (array character (*)) (array base-char (*)))
 		   (if* (null content-length)
-		      then (incf computed-length
+		      then (incf computed-length 
                                  #+allegro
 				 (native-string-sizeof 
 				  content-piece
@@ -496,6 +781,34 @@ or \"foo.com:8000\", not ~s" proxy))
 					     (cdr basic-authorization)))
 				    crlf))
     
+    (if* proxy-basic-authorization
+       then (net.aserve::format-dif :xmit sock "Proxy-Authorization: Basic ~a~a"
+				    (base64-encode
+				     (format nil "~a:~a" 
+					     (car proxy-basic-authorization)
+					     (cdr proxy-basic-authorization)))
+				    crlf))
+    
+    (if* (and digest-authorization
+	      (digest-response digest-authorization))
+       then ; put out digest info
+	    (net.aserve::format-dif 
+	     :xmit sock
+	     "Authorization: Digest username=~s, realm=~s, nonce=~s, uri=~s, qop=~a, nc=~a, cnonce=~s, response=~s~@[, opaque=~s~]~a"
+	     (digest-username digest-authorization)
+	     (digest-realm digest-authorization)
+	     (digest-nonce digest-authorization)
+	     (digest-uri digest-authorization)
+	     (digest-qop digest-authorization)
+	     (digest-nonce-count digest-authorization)
+	     (digest-cnonce digest-authorization)
+	     (digest-response digest-authorization)
+	     (digest-opaque digest-authorization)
+	     crlf))
+	     
+				    
+				    
+
     (if* user-agent
        then (if* (stringp user-agent)
 	       thenret
@@ -583,7 +896,7 @@ or \"foo.com:8000\", not ~s" proxy))
 				 (collect-to-eol buff i len)))))
 	    (setq protocol (collect-to #\space buff pos len))
 	    (skip-to-not #\space buff pos len)
-	    (setq response (collect-to #\space buff pos len))
+	    (setq response (collect-to #\space buff pos len nil t))
 	    ; some servers don't return a comment, so handle that
 	    (skip-to-not #\space buff pos len nil)
 	    (setq comment (collect-to-eol buff pos len)))
@@ -612,7 +925,7 @@ or \"foo.com:8000\", not ~s" proxy))
 	  (let ((jar (client-request-cookies creq)))
 	    (if* jar
 	       then ; do all set-cookie requests
-		    (let (prev)
+		    (let (prev cs)
 		      ; Netscape v3 web server bogusly splits set-cookies
 		      ; over multiple set-cookie lines, so we look for
 		      ; incomplete lines (those ending in #\;) and combine
@@ -625,11 +938,20 @@ or \"foo.com:8000\", not ~s" proxy))
 				   else (setq prev (cdr headval)))
 				
 				(if* (not (eq #\; (last-character prev)))
-				   then (save-cookie (client-request-uri creq)
-						     jar
-						     prev)
+				   then (push prev cs)
+					(setq prev nil))
 					
-					(setq prev nil)))))))
+			 elseif prev
+			   then (push prev cs)
+				(setq prev nil)))
+		      
+		      (if* prev
+			 then (push prev cs))
+		      
+		      (dolist (cc (nreverse cs))
+			(save-cookie (client-request-uri creq)
+				     jar
+				     cc)))))
 	  
 	  
 	  (if* (eq :head (client-request-method creq))
@@ -827,6 +1149,103 @@ or \"foo.com:8000\", not ~s" proxy))
 
 
 
+
+(defun compute-digest-authorization (creq da)
+  ;; compute the digest authentication info, if such is present
+  ;; return true if did the authentication thing
+  (let ((val (cdr (assoc :www-authenticate (client-request-headers creq))))
+	(params))
+    
+    
+    (if* (not (and val
+		   (null (mismatch "digest " val :end2 7 :test #'char-equal))))
+       then ; not a digest authentication
+	    (return-from compute-digest-authorization nil))
+    
+    (setq params (net.aserve::parse-header-line-equals 
+		  val #.(length "digest ")))
+    
+    
+    (setf (digest-opaque da) (cdr (assoc "opaque" params :test #'equal)))
+    
+    (let ((md (md5-init))
+	  (qop (cdr (assoc "qop" params :test #'equalp)))
+	  (ha1)
+	  (ha2))
+      
+      (setf (digest-qop da) qop)
+      
+      (md5-update md (digest-username da))
+      (md5-update md ":")
+      (md5-update md (setf (digest-realm da)
+		       (or (cdr (assoc "realm" params :test #'equalp)) "")))
+      (md5-update md ":")
+      (md5-update md (digest-password da))
+      (setq ha1 (md5-final md :return :hex))
+      
+      ; compute a2
+      
+      (setq md (md5-init))
+      (md5-update md (string-upcase
+		      (symbol-name (client-request-method creq))))
+      (md5-update md ":")
+      ; this is just a part of the whole uri but should be enough I hope
+      (md5-update md (setf (digest-uri da) 
+		       (uri-path-etc (client-request-uri creq))))
+
+      (if* (equal "auth-int" qop)
+	 then (error "auth-int digest not supported"))
+      
+      (setq ha2 (md5-final md :return :hex))
+      
+      
+      
+      
+      ; calculate response
+      
+      (setq md (md5-init))
+      
+      (md5-update md ha1)
+      (md5-update md ":")
+      (md5-update md (setf (digest-nonce da)
+		       (or (cdr (assoc "nonce" params :test #'equalp))
+			   "")))
+      (md5-update md ":")
+      (if* qop
+	 then (md5-update md (digest-nonce-count da))
+	      (md5-update md ":")
+	      (md5-update md (setf (digest-cnonce da)
+			       (format nil "~x" (+ (ash (get-universal-time) 5)
+						 (random 34567)))))
+	      (md5-update md ":")
+	      (md5-update md qop)
+	      (md5-update md ":"))
+      (md5-update md ha2)
+      
+      (setf (digest-response da) (md5-final md :return :hex))
+
+      t
+      )))
+	      
+	      
+	      
+      
+	
+			       
+      
+      
+      
+      
+      
+      
+    
+    
+    
+
+	    
+	    
+    
+
     
 
 ;;;;; cookies
@@ -1013,45 +1432,3 @@ or \"foo.com:8000\", not ~s" proxy))
     (if* (eq #\space ch) 
        thenret
        else (return ch))))
-
-			   
-   
-    
-    
-  
-
-
-
-
-
-    
-  
-	    
-  
-		 
-
-
-
-
-		      
-			
-					   
-  
-			
-		      
-  
-
-
-		
-		
-
-	    
-    
-	      
-    
-    
-    
-      
-    
-  
-  

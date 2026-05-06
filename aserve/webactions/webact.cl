@@ -3,7 +3,7 @@
 ;; webaction.cl
 ;; framework for building dynamic web sites
 ;;
-;; copyright (c) 2003 Franz Inc, Oakland CA  - All rights reserved.
+;; copyright (c) 2003-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -24,12 +24,14 @@
 ;; Suite 330, Boston, MA  02111-1307  USA
 ;;
 
-;; $Id: webact.cl,v 1.11 2004/08/31 03:49:36 kevinrosenberg Exp $
+;; $Id: webact.cl,v 1.17 2007/04/17 22:05:04 layer Exp $
 
 
 (in-package :net.aserve)
-(export 
- '(initialize-websession-master
+
+(export
+ '(
+   initialize-websession-master
    locate-action-path
    webaction
    webaction-entity
@@ -93,12 +95,9 @@
    (clp-content-type :accessor webaction-clp-content-type
 		     :initform nil)
    
-   (cookie-domain :accessor webaction-cookie-domain
-		  :initarg :cookie-domain)
-
    ))
 
-(defparameter *webactions-version* "1.5")
+(defparameter *webactions-version* "1.12")
 	      
 (defvar *name-to-webaction* (make-hash-table :test #'equal))
 
@@ -120,7 +119,6 @@
 				    clp-content-type
 				    (external-format
 				     *default-aserve-external-format*)
-			  cookie-domain
 				    )
   ;; create a webaction project
   ;; and publish all prefixes
@@ -143,7 +141,7 @@
 			     ))
 	(wa (or (gethash name *name-to-webaction*)
 		(make-instance 'webaction))))
-    
+
     (setf (directory-entity-access-file ent) access-file)
     
     (setf (webaction-name wa) name)
@@ -153,7 +151,6 @@
     (setf (webaction-destination wa) destination)
     (setf (webaction-external-format wa) external-format)
     (setf (webaction-clp-content-type wa) clp-content-type)
-    (setf (webaction-cookie-domain wa) cookie-domain)
     
     (if* (and reap-interval (integerp reap-interval) (> reap-interval 0))
        then (setq *session-reap-interval* reap-interval))
@@ -194,7 +191,8 @@
 		
     
     (setf (gethash name *name-to-webaction*) wa)
-    
+
+    (remove-old-webaction-pages wa server)
 
     ;; if we have an index page for the site, then redirect
     ;; the project-prefix to it
@@ -225,9 +223,27 @@
     ent))
 
 
+(defun remove-old-webaction-pages (wa server)
+  ;; unpublish all pages from the previous time this webaction-project
+  ;; was defined
+  
+  (map-entities #'(lambda (ent)
+		    
+		    (if* (eq (getf (entity-plist ent) 'webaction) wa)
+		       then :remove))
+		    
+		(find-locator :exact server)))
+
 (defun redirect-to (req ent dest)
+  ;; the http v1.1 spec says that 307 (temporary redirects) should only be done
+  ;; silently for get's and head's.  For all else (e.g. post) 
+  ;; the browser should ask if the user wants to do the redirect.
+  ;; Thus we use the permantent redirect in that case
   (with-http-response (req ent
-			   :response *response-moved-permanently*)
+			   :response 
+			   (if* (member (request-method req) '(:get :head))
+			      then *response-temporary-redirect*
+			      else *response-moved-permanently*))
     (setf (reply-header-slot-value req :location) dest)
     (with-http-body (req ent))))
   
@@ -247,7 +263,9 @@
 (defun webaction-from-ent (ent)
   (getf (entity-plist ent) 'webaction))
 
-
+#+sbcl
+(defun latin1-to-utf8 (string)
+  (sb-ext:octets-to-string (string-to-octets string :external-format :latin1)))
 
 (defun webaction-entity (req ent)
   ;; handle a request in the uri-space of this project
@@ -358,9 +376,20 @@
 			  
 			(loop
 			  (if* (stringp (car actions))
-			     then (modify-request-path req 
-						       (webaction-project-prefix wa)
-						       (car actions))
+			     then (if* redirect
+				     then  ; redir so client will send
+					  ; new request meaning we have to
+					  ; pass the cookie value in
+					  (modify-request-path 
+					   req 
+					   (webaction-project-prefix wa)
+					   (locate-action-path
+					    wa (car actions) websession))
+					   
+				     else (modify-request-path 
+					   req 
+					   (webaction-project-prefix wa)
+					   (car actions)))
 				  (return)
 				  
 			   elseif (symbolp (car actions))
@@ -386,7 +415,8 @@
 				   elseif (stringp following)
 				     then (modify-request-path 
 					   req (webaction-project-prefix wa)
-					   following)
+					   (locate-action-path
+					    wa following websession))
 					  (return)
 					  
 				     else ; bogus ret from action fcn
@@ -439,7 +469,8 @@
 	  (if* (not (eq :file type))
 	     then (if* failed-following
 		     then (logmess (format nil "no map for webaction ~s"
-					   failed-following)))
+					       #-sbcl failed-following
+                                               #+sbcl (latin1-to-utf8 failed-following))))
 		  (return-from webaction-entity (failed-request req)))
 
 	  (let ((new-ent (clp-directory-entity-publisher
@@ -493,7 +524,8 @@
   ;; websession is non-nil.
   ;;
   (let (pos sessid sm)
-    (if* (and (eq #\~ (aref following 0))
+    (if* (and (> (length following) 0)
+	      (eq #\~ (aref following 0))
 	      (setq pos (position #\~ following :start 1))
 	      (> (length following) (1+ pos))
 	      (eql #\/ (aref following (1+ pos)))
@@ -580,7 +612,8 @@
 (defun relative-to-absolute-path (prefix relative-path)
   ;; add on the project prefix so that the resulting path
   ;; is reachable via a browser
-  (if* (not (eq #\/ (aref relative-path 0)))
+  (if* (or (zerop (length relative-path))
+	   (not (eq #\/ (aref relative-path 0))))
      then ; relative path
 	  (concatenate 'string prefix relative-path)
      else relative-path))

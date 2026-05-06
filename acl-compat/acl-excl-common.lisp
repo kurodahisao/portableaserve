@@ -105,6 +105,10 @@
 (defun filesys-write-date (stream)
   (file-write-date stream))
 
+(defun acl-compat.system:make-temp-file-name (name)
+  (cl-fad:with-open-temporary-file (s)
+    (pathname s)))
+
 (defun frob-regexp (regexp)
   "This converts from ACL regexps to Perl regexps.  The escape
   status of (, ) and | is toggled."
@@ -123,7 +127,7 @@
 ;; TODO: a compiler macro for constant string regexps would be nice,
 ;; so that the create-scanner call at runtime can be evaded.
 (defun match-regexp (string-or-regexp string-to-match
-                     &key newlines-special case-fold return
+                     &key newlines-special case-fold (return :string)
                      (start 0) end shortest)
   "Note: if a regexp compiled with compile-regexp is passed, the
   options newlines-special and case-fold shouldn't be used, since
@@ -191,4 +195,21 @@ program-controlled interception of a break."
   (check-type sequence (or string (array (unsigned-byte 8) 1)
                            (array (signed-byte 8) 1)))
   (write-sequence sequence stream :start start :end end))
+
+;;; MD5 support for client.cl, using the Ironclad library (available via
+;;; QuickLisp)
+
+(defun md5-init ()
+  (ironclad:make-digest :md5))
+
+(defun md5-update (context data &rest args &key start end external-format)
+  (apply #'ironclad:update-digest context data args))
+
+(defun md5-final (context &key (return :integer))
+  ;; return is one of :integer, :usb8, :hex
+  (let ((result (ironclad:produce-digest context)))
+    (ecase return
+      (:usb8 result)
+      (:integer (ironclad:octets-to-integer result))
+      (:hex (ironclad:byte-array-to-hex-string result)))))
 

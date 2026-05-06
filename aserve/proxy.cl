@@ -2,8 +2,8 @@
 ;;
 ;; proxy.cl
 ;;
-;; copyright (c) 1986-2000 Franz Inc, Berkeley, CA  - All rights reserved.
-;; copyright (c) 2000-2004 Franz Inc, Oakland, CA - All rights reserved.
+;; copyright (c) 1986-2005 Franz Inc, Berkeley, CA  - All rights reserved.
+;; copyright (c) 2000-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -24,7 +24,7 @@
 ;; Suite 330, Boston, MA  02111-1307  USA
 ;;
 ;;
-;; $Id: proxy.cl,v 1.19 2011/06/20 18:06:23 kevinrosenberg Exp $
+;; $Id: proxy.cl,v 1.50 2009/01/23 06:52:20 jkf Exp $
 
 ;; Description:
 ;;   aserve's proxy and proxy cache
@@ -444,22 +444,30 @@ cached connection = ~s~%" cond cached-connection))
 	    ;(logmess "outbuf now")
 	    ;(dump-header-block outbuf *initial-terminal-io*)
 	    
-	    ; send host header if it isn't already there
-	    (if* (null (header-buffer-values (request-header-block req) :host))
-	       then ; no host given
-		    (insert-header outbuf :host
-				   (if* port
-				      then (format nil "~a:~d"
-						   host port)
-				      else host)))
+	    ; send host header 
+	    (let ((host (or (request-header-host req)
+			    (header-buffer-header-value
+			     (request-header-block req) :host)
+			    (if* port
+			       then (format nil "~a:~d"
+					    host port)
+			       else host))))
+	      (insert-header outbuf :host host))
+			     
+	    
+	    ; if the proxier decides to check authorization before
+	    ; doing a proxy then the authorization header will appear
+	    ; in the request-headers list and we want to prevent the
+	    ; authorization header from being sent twice in this case:
+	    ; [spr33532]
 	    (dolist (header (request-headers req))
-	      
-	      (insert-non-standard-header outbuf (car header) (cdr header)))
+	      (if* (not (eq (car header) :authorization))
+		 then (insert-non-standard-header outbuf (car header) (cdr header))))
 	    
 	    (setq outend (add-trailing-crlf outbuf 1))
 
 	    (if-debug-action :xmit
-			     (format *debug-stream* "proxy covnerted headers toward server~%")
+			     (format *debug-stream* "proxy converted headers toward server~%")
 			     (dotimes (i outend)
 			       (write-char (code-char (aref outbuf i)) *debug-stream*))
 			     (format *debug-stream* "---- end---~%")
@@ -760,8 +768,14 @@ cached connection = ~s~%" cond cached-connection))
 		 then (ignore-errors
 		       (let ((rsock (request-socket req)))
 		
-			 (format rsock "HTTP/1.1 ~d ~a~a" response comment *crlf*)
-      
+			 (format rsock "HTTP/1.1 ~d ~a~a" response (or comment nil) *crlf*)
+			 ;;
+			 ;; FLAG -- the comment should have octets-to-string wrapped around it, this is from 
+			 ;;         allegro's excl package, consider use of flexi-streams:octets-to-string. 
+			 ;;         
+			 ;;
+			 ;;(format rsock "HTTP/1.1 ~d ~a~a" response (and comment (octets-to-string comment)) *crlf*)
+			 ;;
 			 (write-sequence clibuf rsock :end cliend)
 			 (if* body-length 
 			    then (write-body-buffers rsock body-buffers 

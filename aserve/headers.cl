@@ -2,8 +2,8 @@
 ;;
 ;; headers.cl
 ;;
-;; copyright (c) 1986-2000 Franz Inc, Berkeley, CA  - All rights reserved.
-;; copyright (c) 2000-2004 Franz Inc, Oakland, CA - All rights reserved.
+;; copyright (c) 1986-2005 Franz Inc, Berkeley, CA  - All rights reserved.
+;; copyright (c) 2000-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -24,7 +24,7 @@
 ;; Suite 330, Boston, MA  02111-1307  USA
 ;;
 ;;
-;; $Id: headers.cl,v 1.7 2005/02/20 12:20:45 rudi Exp $
+;; $Id: headers.cl,v 1.31 2008/01/28 17:52:21 jkf Exp $
 
 ;; Description:
 ;;   header parsing
@@ -35,6 +35,9 @@
 
 
 (in-package :net.aserve)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (export '(multipart-header-p)))
 
 (defvar *header-byte-array*
     ;; unsigned-byte 8 vector contains the characters referenced by
@@ -136,7 +139,7 @@
 	("Expect" :p :nf :mx)
 	("Expires"             :nf   :p  nil)
 	("From"                :p    :nf :mp)  ; mp?
-	("Host"                :p    :nf :mx)
+	("Host"                :np   :nf :mx)
 	("If-Match"            :p    :nf :mx)
 	("If-Modified-Since"   :p    :n   nil)
 	("If-None-Match"       :p    :nf :mx)
@@ -628,6 +631,8 @@
 
 (defun buffer-subseq-to-string (buff start end)
   ;; extract a subsequence of the usb8 buff and return it as a string
+  (sb-ext:octets-to-string buff :start start :end end :external-format *default-aserve-external-format*)
+  #+ignore
   (let ((str (make-string (- end start))))
     (do ((i start (1+ i))
 	 (ii 0 (1+ ii)))
@@ -739,7 +744,7 @@
 		   
     (free-sresource *header-index-sresource* ans)
 		   
-    headers))
+    (nreverse headers)))
 
 (defun listify-parsed-header-block (buff)
   ;; the header block buff has been parsed.
@@ -915,7 +920,7 @@
 
 
 (defun insert-non-standard-header (buff name value)
-  ;; insert a header that's not know by index into the buffer
+  ;; insert a header that's not known by index into the buffer
   ;;
   (setq name (string name))
   
@@ -1117,15 +1122,9 @@
 		      res))))
     (nreverse res)))
   
-	      
-			
-	      
-      
-  
-  
-    
-    
-
-
-
-
+(defmethod multipart-header-p ((req http-request))
+  (let* ((ctype (header-slot-value req :content-type))
+	 (parsed (and ctype (parse-header-value ctype))))
+    (and (listp (car parsed))
+         (listp (cdar parsed))
+         (equalp "multipart/form-data" (cadar parsed)))))	      

@@ -3,7 +3,7 @@
 ;; websession.cl
 ;; session support for webactions
 ;;
-;; copyright (c) 2003 Franz Inc, Oakland CA  - All rights reserved.
+;; copyright (c) 2003-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -23,7 +23,7 @@
 ;; version) or write to the Free Software Foundation, Inc., 59 Temple Place, 
 ;; Suite 330, Boston, MA  02111-1307  USA
 ;;
-;; $Id: websession.cl,v 1.3 2004/03/01 18:25:31 kevinrosenberg Exp $
+;; $Id: websession.cl,v 1.8 2007/12/26 19:02:27 jkf Exp $
 
 (in-package :net.aserve)
 
@@ -201,3 +201,22 @@
   
   
   
+(defun kill-websession (req ent)
+  ;; remove the session associated with this req/ent
+  ;; (untested)
+  (let* ((wa (webaction-from-ent ent))
+	 (sm (and wa (webaction-websession-master wa)))
+	 (sessions (and sm (sm-websessions sm)))
+	 (session (websession-from-req req)))
+    
+    (if* (and sessions session)
+       then (remhash (websession-key session) sessions))))
+
+
+	 
+	 
+    
+	
+    
+    
+   

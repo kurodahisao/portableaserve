@@ -2,7 +2,8 @@
 ;;
 ;; t-aserve.cl
 ;;
-;; copyright (c) 1986-2000 Franz Inc, Berkeley, CA 
+;; copyright (c) 1986-2005 Franz Inc, Berkeley, CA  - All rights reserved.
+;; copyright (c) 2000-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -22,7 +23,7 @@
 ;; Suite 330, Boston, MA  02111-1307  USA
 ;;
 ;;
-;; $Id: t-aserve.cl,v 1.8 2004/02/17 12:48:44 rudi Exp $
+;; $Id: t-aserve.cl,v 1.56 2007/04/17 22:05:04 layer Exp $
 
 ;; Description:
 ;;   test iserve
@@ -49,6 +50,20 @@
   )
 
 (in-package :net.aserve.test)
+
+(eval-when (compile eval load)
+  (defvar *aserve-examples-directory*
+      (or (cl-fad:directory-exists-p "aserve/examples/")
+	  (cl-fad:directory-exists-p "examples/")
+	  (error "Could not find the aserve examples directory.")))
+  )
+
+(defun long-site-name* ()
+  "Handle case where LONG-SITE-NAME returns NIL.
+The return value should be different from \"localhost\" since some tests
+depend on a server instance returning different content depending on
+hostname."
+  (or (long-site-name) "127.0.0.1"))
 
 ; set to nil before loading the test to prevent the test from auto-running
 (defvar common-lisp-user::*do-aserve-test* t)
@@ -93,12 +108,12 @@
 		   (test-forms port)
 		   (test-client port)
 		   (test-cgi port)
+		   (test-http-copy-file)
 		   (if* (member :ics *features*)
 		      then (test-international port)
 			   (test-spr27296))
 		   (if* test-timeouts 
-		      then (test-timeouts port))
-		   ))
+		      then (test-timeouts port))))
 	    (format t "~%~%===== test direct ~%~%")
 	    (do-tests)
 	    
@@ -138,13 +153,13 @@
     
 
 
-(defun start-aserve-running (&optional ssl)
+(defun start-aserve-running (&optional ssl (port 8000))
   ;; start aserve, return the port on which we've started aserve
-  (let ((wserver (start :port nil :server :new :ssl ssl))); let the system pick a port
+  (let ((wserver (start :server :new :ssl ssl :port port))); let the system pick a port
     (setq *wserver* wserver)
     (unpublish :all t) ; flush anything published
     (setq *x-ssl* ssl)
-    (socket::local-port (net.aserve::wserver-socket wserver))
+    (acl-compat.socket:local-port (net.aserve::wserver-socket wserver))
     ))
 
 (defun stop-aserve-running ()
@@ -162,7 +177,7 @@
   
   (push *x-proxy* *save-x-proxy*)
   (setq *x-proxy* (format nil "localhost:~d" 
-			  (socket:local-port
+			  (acl-compat.socket:local-port
 			   (wserver-socket *proxy-wserver*))))
   )
 
@@ -225,13 +240,8 @@
 	(dummy-2-name "xx2aservetest.txt")
 	(prefix-local (format nil "http://localhost:~a" port))
 	(prefix-dns
-         ;; KLUDGE: Don't assume that long-site-name returns a valid
-         ;; hostname -- punt instead.
-         #-allegro
-         (format nil "http://localhost:~a" port)
-         #+allegro
          (format nil "http://~a:~a" 
-			      (long-site-name)
+			      (long-site-name*)
 			      port))
 	(reps 0)
 	(got-reps nil))
@@ -398,7 +408,7 @@
 		  :content-type "text/plain")
     
     (publish-file :path "/checkit" 
-		  :host (long-site-name)
+		  :host (long-site-name*)
 		  :file dummy-2-name
 		  :content-type "text/plain")
     
@@ -426,7 +436,7 @@
     
     ; remove the dns one
     (publish-file :path "/checkit" 
-		  :host (long-site-name)
+		  :host (long-site-name*)
 		  :remove t)
     
     ; verify it's gone too
@@ -585,7 +595,7 @@
 (defun test-authorization (port)
   (let ((prefix-local (format nil "http://localhost:~a" port))
 	(prefix-dns   (format nil "http://~a:~a" 
-			      (long-site-name) port)))
+			      (long-site-name*) port)))
     
     ;; manual authorization testing
     ;; basic authorization
@@ -638,7 +648,7 @@
 	     :content-type "text/html"
 	     :function
 	     #'(lambda (req ent)
-		 (let ((net-address (ash (socket:remote-host
+		 (let ((net-address (ash (acl-compat.socket:remote-host
 					  (request-socket req))
 					 -24)))
 		   (if* (equal net-address 127)
@@ -748,7 +758,7 @@
       ;; accept from dns name only 
       
       (setf (location-authorizer-patterns loca) 
-	`((:accept ,(long-site-name))
+	`((:accept ,(long-site-name*))
 	  :deny))
       
       (test 404
@@ -762,7 +772,7 @@
       
       ;; deny dns and accept all others
       (setf (location-authorizer-patterns loca) 
-	`((:deny ,(long-site-name))
+	`((:deny ,(long-site-name*))
 	  :accept))
       
       (test 200
@@ -1172,17 +1182,17 @@
 		 
     
       (setq proxy-host (format nil "localhost:~d"
-			       (socket:local-port
+			       (acl-compat.socket:local-port
 				(net.aserve::wserver-socket proxy-wserver))))
     
       (setq origin-server
-	(format nil "http://localhost:~d" (socket:local-port
+	(format nil "http://localhost:~d" (acl-compat.socket:local-port
 					   (net.aserve::wserver-socket *wserver*))))
 
       (format t "server on port ~d, proxy server on port ~d~%"
-	      (socket:local-port
+	      (acl-compat.socket:local-port
 	       (net.aserve::wserver-socket *wserver*))
-	      (socket:local-port
+	      (acl-compat.socket:local-port
 	       (net.aserve::wserver-socket proxy-wserver)))
 
       (with-open-file (p "aservetest.xx" :direction :output
@@ -1267,7 +1277,7 @@
 (defun test-publish-directory (port)
   (let ((prefix-local (format nil "http://localhost:~a" port))
 	(prefix-dns   (format nil "http://~a:~a" 
-			      (long-site-name)
+			      (long-site-name*)
 			      port))
 	(test-dir)
 	(step 0)
@@ -1498,7 +1508,7 @@
 (defun test-publish-prefix (port)
   (let ((prefix-local (format nil "http://localhost:~a" port))
 	(prefix-dns   (format nil "http://~a:~a" 
-			      (long-site-name)
+			      (long-site-name*)
 			      port))
 	(got-here))
     (publish-prefix :prefix "/pptest"
@@ -1554,25 +1564,33 @@
   ;; that where our shell script works
   ;;
   (declare (ignorable port))
-  #+(and unix (and allegro (version>= 6 1)))
+  #+(and allegro (version>= 6 1))
   (let ((prefix-local (format nil "http://localhost:~a" port))
 	(error-buffer))
     (publish :path "/cgi-0"
 	     :function #'(lambda (req ent)
 			   (net.aserve:run-cgi-program 
-			    req ent "sh aserve/examples/cgitest.sh")))
+			    req ent
+			    #.(format nil "sh ~acgitest.sh"
+				      *aserve-examples-directory*))))
     (publish :path "/cgi-1"
 	     :function #'(lambda (req ent)
 			   (net.aserve:run-cgi-program 
-			    req ent "sh aserve/examples/cgitest.sh 1")))
+			    req ent
+			    #.(format nil "sh ~acgitest.sh 1"
+				      *aserve-examples-directory*))))
     (publish :path "/cgi-2"
 	     :function #'(lambda (req ent)
 			   (net.aserve:run-cgi-program 
-			    req ent "sh aserve/examples/cgitest.sh 2")))
+			    req ent
+			    #.(format nil "sh ~acgitest.sh 2"
+				      *aserve-examples-directory*))))
     (publish :path "/cgi-3"
 	     :function #'(lambda (req ent)
 			   (net.aserve:run-cgi-program 
-			    req ent "sh aserve/examples/cgitest.sh 3")))
+			    req ent
+			    #.(format nil "sh ~acgitest.sh 3"
+				      *aserve-examples-directory*))))
     
     ;; verify that the various headers work
     (test 200 (values2 
@@ -1588,7 +1606,13 @@
 	(x-do-http-request (format nil "~a/cgi-2"
 				   prefix-local)
 			   :redirect nil)
-      (test "go to franz" body :test #'equal)
+      
+      ; some /bin/sh's don't' support "-n" so accept either one.
+      ; We don't want to search for something exact since if -n
+      ; fails we get an appened lf, or cllf and we don't want to
+      ; conditionalize on the machine's line ending convention.
+      (test t (not (null (search "go to franz" body))))
+      
       (test 301 code)
       (test "http://www.franz.com" (cdr (assoc :location headers))
 	    :test #'equal)
@@ -1605,7 +1629,9 @@
     (publish :path "/cgi-4"
 	     :function #'(lambda (req ent)
 			   (net.aserve:run-cgi-program 
-			    req ent "sh aserve/examples/cgitest.sh 4"
+			    req ent
+			    #.(format nil "sh ~acgitest.sh 4"
+				      *aserve-examples-directory*)
 			    :error-output
 			    #'(lambda (req ent stream)
 				(declare (ignore req ent))
@@ -1624,9 +1650,9 @@
 				  eof
 				  )))))
     (setq error-buffer (make-array 10 
-				  :element-type 'character
-				  :adjustable t
-				  :fill-pointer 0))
+				   :element-type 'character
+				   :adjustable t
+				   :fill-pointer 0))
         
     (multiple-value-bind (body rescode)
 	(x-do-http-request (format nil "~a/cgi-4" prefix-local))
@@ -1653,7 +1679,7 @@
     
     ;; try making a connection and not sending any headers.
     ;; we should timeout
-    (let ((sock (socket:make-socket :remote-host "localhost"
+    (let ((sock (acl-compat.socket:make-socket :remote-host "localhost"
 				    :remote-port port)))
       (unwind-protect
        (progn
@@ -1761,7 +1787,7 @@
 			   (with-http-response (req ent)
 			     (with-http-body (req ent)))))
     (do-http-request (format nil "http://localhost:~d/spr27296"
-			     (socket:local-port
+			     (acl-compat.socket:local-port
 			      (net.aserve::wserver-socket server)))
       :method :post
       :content string
@@ -1769,24 +1795,42 @@
     (shutdown :server server)))
 			   
 
+(defun test-http-copy-file ()
+  (let ((url
+	 "http://www.franz.com/support/8.0/download/entpro/dist/windows/acl80.exe")
+	(reference-file
+	 "/fi/www/sites/franz/prod/htdocs/support/8.0/download/entpro/dist/windows/acl80.exe")
+	(temp-file-name (acl-compat.sys:make-temp-file-name "temp")))
+    (when (not (probe-file reference-file))
+      (format t "test-http-copy-file: reference file does not exist.~%")
+      (return-from test-http-copy-file))
+    (unwind-protect
+	(flet ((doit (&rest args)
+		 (format t "~&~%copying reference file~@[:~{ ~s~}~]~%"
+			 args)
+		 (let ((before (get-internal-real-time)))
+		   (apply #'http-copy-file url temp-file-name args)
+		   (format t "time = ~s msecs~%"
+			   (- (get-internal-real-time) before)))
+		 (format t "comparing ~a~%" temp-file-name)
+             ;; FIXME: implement compare-files in acl-compat - but we
+             ;; won't have the reference file locally so it's not urgent
+		 (test t #+allegro (excl::compare-files reference-file temp-file-name) #-allegro nil)
+		 (delete-file temp-file-name)))
+	  (doit)
+	  (doit :protocol :http/1.0)
+	  (doit :buffer-size 2048)
+	  (doit :buffer-size 4096)
+	  (doit :buffer-size 8192)
+	  (doit
+	   :progress-function
+	   (lambda (bytes-read total-size)
+	     (format t "~&  copy progress: ~a ~a~%" bytes-read total-size)
+	     (force-output t))))
+      (ignore-errors (delete-file temp-file-name)))))
 
     
 (if* common-lisp-user::*do-aserve-test* 
    then (test-aserve *test-timeouts*)
    else (format t 
 		" (net.aserve.test::test-aserve) will run the aserve test~%"))
-
-
-
-	
-    
-   
-  
-  
-
-	
-  
-
-  
-
-

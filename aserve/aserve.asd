@@ -8,58 +8,28 @@
   (:use #:cl #:asdf))
 (in-package #:aserve-system)
 
-(defclass acl-file (cl-source-file) ())
-(defmethod asdf:source-file-type ((c acl-file) (s module)) "cl")
-
 ;;;; ignore warnings
 ;;;;
 ;;;; FIXME: should better fix warnings instead of ignoring them
-;;;; FIXME: (perform legacy-cl-sourcefile) duplicates ASDF code
 
-(defclass legacy-acl-source-file (acl-file)
+(defclass legacy-acl-source-file (cl-source-file.cl)
     ()
   (:documentation
    "Common Lisp source code module with (non-style) warnings.
 In contrast to CL-SOURCE-FILE, this class does not think that such warnings
 indicate failure."))
 
-(defmethod perform ((operation compile-op) (c legacy-acl-source-file))
-  (let ((source-file (component-pathname c))
-	(output-file (car (output-files operation c)))
-	(warnings-p nil)
-	(failure-p nil))
-    (setf (asdf::component-property c 'last-compiled) nil)
-    (handler-bind ((warning (lambda (c)
-			      (declare (ignore c))
-			      (setq warnings-p t)))
-		   ;; _not_ (or error (and warning (not style-warning)))
-		   (error (lambda (c)
-			    (declare (ignore c))
-			    (setq failure-p t))))
-      (compile-file source-file
-		    :output-file output-file))
-    ;; rest of this method is as for CL-SOURCE-FILE
-    (setf (asdf::component-property c 'last-compiled) (file-write-date output-file))
-    (when warnings-p
-      (case (asdf::operation-on-warnings operation)
-	(:warn (warn "COMPILE-FILE warned while performing ~A on ~A"
-		     c operation))
-	(:error (error 'compile-warned :component c :operation operation))
-	(:ignore nil)))
-    (when failure-p
-      (case (asdf::operation-on-failure operation)
-	(:warn (warn "COMPILE-FILE failed while performing ~A on ~A"
-		     c operation))
-	(:error (error 'compile-failed :component c :operation operation))
-	(:ignore nil)))))
+(defmethod perform :around ((operation compile-op) (c legacy-acl-source-file))
+  (handler-bind (((or style-warning warning) #'muffle-warning))
+    (call-next-method)))
 
-#+(or lispworks cmu sbcl mcl openmcl clisp)
+#-allegro
 (defsystem aserve
     :name "AllegroServe (portable)"
     :author "John K. Foderaro"
-    :version "1.2.35"
+    :version "1.2.50"
     :licence "LLGPL"
-    :default-component-class acl-file
+    :default-component-class cl-source-file.cl
     :components ((:file "packages")
                  (:file "macs" :depends-on ("packages"))
                  (:legacy-acl-source-file "main" :depends-on ("macs"))
@@ -70,32 +40,24 @@ indicate failure."))
                  (:file "authorize" :depends-on ("main" "publish"))
                  (:file "log" :depends-on ("main"))
                  (:file "client" :depends-on ("main"))
-                 (:file "proxy" :depends-on ("main" "headers")))
+                 (:file "proxy" :depends-on ("main" "headers"))
+                 (:file "cgi" :depends-on ("main"))
+                 (:file "playback" :depends-on ("main" "client")))
     :depends-on (htmlgen acl-compat)
     :perform (load-op :after (op aserve)
-                      (pushnew :aserve cl:*features*)))
-
-#+allegro
-(defclass original-aserve (asdf:component)
-  ((loaded :initform nil :accessor loaded)))
-
-#+allegro
-(defmethod asdf:perform ((op asdf:load-op) (c original-aserve))
-  #+common-lisp-controller (c-l-c:original-require 'aserve)
-  #-common-lisp-controller (require 'aserve)
-  (setf (loaded c) t))
-
-#+allegro
-(defmethod asdf:operation-done-p ((op asdf:load-op) (c original-aserve))
-  (loaded c))
-
-#+allegro
-(defmethod asdf:operation-done-p ((op asdf:compile-op) (c original-aserve))
-  t)
+                      (pushnew :aserve cl:*features*))
+    #+asdf3 :perform #+asdf3 (test-op (op c) (load-system :aserve-test :force t))
+  )
 
 #+allegro
 (defsystem aserve
-    :components ((:original-aserve "dummy")))
+    :name "AllegroServe (portable)"
+    :author "John K. Foderaro"
+    :version "1.3.19"
+    :licence "LLGPL"
+    :default-component-class cl-source-file.cl
+    :components ((:file "require-original-aserve")))
+
 
 ;;; Logical pathname is needed by AllegroServe examples
 #+(or lispworks cmu mcl openmcl clisp sbcl)
@@ -122,6 +84,17 @@ indicate failure."))
                           ;:case :common
                           )
            *load-truename*))))
+
+(defsystem aserve-test
+    :name "Tests for AllegroServe (portable)"
+    :author "John K. Foderaro"
+    :version "1.2.50"
+    :licence "LLGPL"
+    :default-component-class cl-source-file.cl
+    :components ((:module "test"
+                          :components ((:file "t-aserve"))))
+    :depends-on (ptester))
+
 #+cmu
 (defun cl-user::init-aserve-cmu ()
   ;; this isn't strictly necessary, but scheduling feels very coarse

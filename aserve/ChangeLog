@@ -1,3 +1,205 @@
+*******************************************************************************
+** Please increment the version if you change anything user-visible.
+** See *aserve-version* in main.cl.
+** Please leave this at the top of the file.  Thanks.
+*******************************************************************************
+
+2009-07-24  Kevin Layer  <layer@gemini.franz.com>
+1.2.60
+	* decode.cl: uriencode-string: use uppercase hex chars for
+	  EC2.  Amazon's EC2 requires that uppercase characters (A-F)
+	  be used, otherwise the signing of EC2 requests via the REST
+	  API won't match.
+
+2009-07-01    <layer@HOBART128>
+
+	* makefile: dribble test output to "test.out" (mainly for windows)
+
+2009-06-30  Kevin Layer  <layer@gemini.franz.com>
+
+	* load.cl: remove removed files from *aserve-other-files*
+
+2009-05-11  Kevin Layer  <layer@gemini.franz.com>
+1.2.59
+	* main.cl (request-query): rfe8332: make request-query-value
+	  work on PUT requests
+
+2009-05-04  Kevin Layer  <layer@franz.com>
+
+	* test/t-aserve.cl: turn on cgi tests for Windows
+
+2009-02-19  John Foderaro  <jkf@max.verada.com>
+1.2.58
+	* fix problem introduced in 1.2.57 where the response date 
+	is always the zero universal time.
+
+2009-01-23    <jkf@duo.verada.com>
+1.2.57
+	* proxy.cl - correctly send out the comment after the result
+	 code.  Turns out that Microsoft's ISA actually reads it. 
+
+2009-01-13  Kevin Layer  <layer@gemini.franz.com>
+
+	* main.cl (http-request): fix typo (reply-protocol-sring =>
+	  reply-protocol-string)
+
+2008-07-08  John Foderaro  <jkf@tiger.franz.com>
+1.2.56
+	* [from David Cooper] - store in the request object the time at 
+	which a request came and and when it was finshed being handled.
+	 - when parsing multipart bodies, handle multipart content type 
+	 that has additional info as well
+
+2008-07-07  John Foderaro  <jkf@tiger.franz.com>
+	* main.cl: fix bug where getting a large request body would
+	  fail due to array not being adjustable
+
+2008-05-22  Kevin Layer  <layer@gemini.franz.com>
+1.2.55
+	* publish.cl: set mime type of dmg files to
+	  application/x-apple-diskimage
+
+2008-02-16  Kevin Layer  <layer@gemini.franz.com>
+
+	* makefile: add `tags' rule
+
+2008-02-07  John Foderaro  <jkf@tiger.franz.com>
+
+	* if during the accept loop a sleep is necessary 4 times,
+	  a new thread will be created anyway. This will allow
+	  the worker threads to grow in more situations.
+
+	* add backlog argument to net.aserve:start
+
+2008-01-28  John Foderaro  <jkf@tiger.franz.com>
+1.2.54
+	* fix bug where if aserve as a proxy did get-basic-authorization
+	it would cause two authorization headers to be sent by the proxy
+
+2007-12-26  John Foderaro  <jkf@tiger.franz.com>
+1.2.53
+	* to enable zoom on error do (net.aserve::debug-on :zoom-on-error)
+	and it will no longer act like you added :notrap as well.
+
+2007-12-13    <jkf@MINI>
+
+	* do-http-request: have timeout apply to the socket connection
+	 operation as well.
+
+2007-10-23  Kevin Layer  <layer@gemini.franz.com>
+1.2.52
+
+	* main.cl: new debug type for 8.1 or later, :zoom-on-error,
+	  allows easier debugging of errors.  Do
+	  (push :zoom-on-error net.aserve::*debug-current*)
+	  to enable this feature.
+
+2007-09-12  Kevin Layer  <layer@gemini.franz.com>
+1.2.51
+
+	* main.cl: incf version
+	* makefile: use 8.1
+	* publish.cl: update *file-type-to-mime-type*
+
+2007-04-08  Kevin Layer  <layer@gemini.franz.com>
+
+	* client.cl: move httpcopy.cl contents into client.cl
+	* (REMOVED) httpcopy.cl
+	* load.cl: back out previous change
+
+2007-04-08  Kevin Layer  <layer@gemini.franz.com>
+
+	* (NEW) httpcopy.cl: implements new http-copy-file client
+          function
+	* load.cl: add httpcopy file
+	* makefile: default mlisp to /fi/cl/8.0/bin/mlisp
+	* packages.cl: export http-copy-file
+	* test/t-aserve.cl: add tests for http-copy-file
+
+2007-04-06  Kevin Layer  <layer@gemini.franz.com>
+
+	* makefile: make default lisp in the presence of ../dcl.dxl be
+	  that; add `test' rule
+	* test/t-aserve.cl: allow to be run from this directory
+
+2007-03-27  Charles A. Cox  <cox@gemini.franz.com>
+
+	* examples/urian.cl: spr31997 suggestion
+
+2007-03-21  Ahmon Dancy  <dancy@dancy>
+1.2.50
+	
+	* rfe6834: SSL peer verification support.  Also, 'start' function
+	now allows the SSL certificate key file to be specified separately
+	from the certificate.
+
+	* bug16677: aserve could leak file descriptors if SSL (https)
+	connection fails.  
+
+2006-12-22  John Foderaro  <jkf@tiger.franz.com>
+1.2.49
+	* when response needed a string output stream and 
+	 also specified an external format we would 
+	 incorrectly add a null to the end of the response
+
+	* ignore body for *response-not-modified* as well
+
+2006-12-20  Kevin Layer  <layer@gemini.franz.com>
+1.2.48
+
+    rfe6669: Changes to handle "204 No Content" from Vebjorn Ljosa
+    <ljosa-franz-opensource@ljosa.com>.  Handling 204 responses is
+    important because some web services (e.g., Amazon.com's "Simple
+    Storage Service," S3) use them.
+	* packages.cl: export *response-no-content*
+	* client.cl: handle *response-no-content*
+	* main.cl: define *response-no-content*
+
+2006-07-24  John Foderaro  <jkf@tiger.franz.com>
+1.2.47
+	* the cookies added by set-cookie-header will now appear in 
+	  the same order as the set-cookie-header calls.
+	* when cookies are retrieved and processed by do-http-request
+	  they will be processed in the same order they appear in the
+	  header 
+
+2006-07-14  John Foderaro  <jkf@tiger.franz.com>
+
+	* publish.cl - if process-entity does a redirect then
+            set the location to an absoluteURI.   [spr31830]
+	
+
+2006-06-29    <jkf@max.verada.com>
+1.2.46
+	* add content type of "text/html" when sending the
+	  response not authorized message
+
+2006-06-07    <jkf@max.verada.com>
+
+	* accept a bogus first response line that doesn't include
+	  the space after the response code.
+
+2006-04-19  John Foderaro  <jkf@tiger.franz.com>
+1.2.45
+	* client.cl: added :proxy-basic-authorization to 
+	do-http-request so you can give your basic credentials to a
+	proxy
+
+2006-03-29  John Foderaro  <jkf@tiger.franz.com>
+1.2.44
+	* cgi.cl - add terminate argument to run-cgi-program
+
+2006-03-24    <jkf@max.verada.com>
+
+	* main.cl - handle a client request that includes a chunked body.
+	 (not tested yet since I can't find a client making such a request).
+
+	* proxy.cl - create appropriate Host header.
+
+*******************************************************************************
+*** ACL 8.0 release
+*******************************************************************************
+
 2005-08-05  Gabor Melis  <mega@hotpop.com>
 
 	* main.cl (connection-reset-error): detect sigpipe and
@@ -9,6 +211,83 @@
 	  needs to send "Connection: keep-alive".
 
 	* main.cl: fixed atomic-{incf,decf} for sbcl
+
+2005-03-06  John Foderaro  <jkf@max.verada.com>
+
+	* client.cl - handle single line set-cookie lines that end in a semicolon
+
+2005-02-21  John Foderaro  <jkf@max.verada.com>
+1.2.43
+	* add digest-authorization to the aserve client code
+
+2005-01-13 John Foderaro  <jkf@tiger.franz.com>
+1.2.42
+	* main.cl - track whether characters have been read in a 
+          request in order determine whether a "400 Bad Request"
+	  response should be made.
+	
+2005-01-13 John Foderaro  <jkf@tiger.franz.com>
+1.2.41
+	* htmlgen/htmlgen.cl - fix call to macroexpand for acl7.0
+	  where the use of the compiler's environment can cause
+	  infinite macroexpansion loops unless you're careful.
+
+2004-12-15  John Foderaro  <jkf@tiger.franz.com>
+1.2.40
+	*  remove debugging format statement in webactions
+
+2004-12-14  John Foderaro  <jkf@tiger.franz.com>
+1.2.39
+	* with with-standard-io-syntax to prevent #n= printing.
+	
+2004-11-18  John Foderaro  <jkf@tiger.franz.com>
+
+	* use &body in macro definitions to help indenters
+	* use response code 307 for redirects rather than 301 since
+	  browsers are now starting to consider 301 redirects as 
+	  permanent (and since browsers now handle 307 correctly).
+
+2004-09-08  John Foderaro  <jkf@tiger.franz.com>
+
+	* publish.cl - handle international characters
+	    emitted by a page where aserve's strategy was
+	    to use a string output stream as an intermediary
+	    storage device.
+	    
+
+2004-10-19  John Foderaro  <jkf@tiger.franz.com>
+1.2.38
+	* cgi.cl (parse-cgi-script-data): fix bug where find
+	  was used instead of position.
+
+Thu Jul 22 23:03:43 PDT 2004  Duane Rettig  <duane@gemini>
+
+	* load.cl: Remove streamc dependencies
+	* packages.cl: Remove streamc require
+	* publish.cl: Remove streamc dependencies
+	
+2004-06-09  John Foderaro  <jkf@tiger.franz.com>
+1.2.37
+	* main.cl - return a 400 response if there's an error reading
+	    the request.  
+	    Use process locks when allocating sresources rather
+	    then without-scheduling.
+
+2004-04-29  John Foderaro  <jkf@tiger.franz.com>
+
+	* main.cl - http-worker-thread don't expect the stream
+	    to process to be the first and only thing on the
+	    run-reasons list.  Acl7.0 will add things as well.
+
+2004-03-04  John Foderaro  <jkf@tiger.franz.com>
+
+	* main.cl - ensure that get-request-body always reads from
+	 a stream with the :octets external format so that the
+	 content-length header value is meaningful.
+
+2004-03-03    <jkf@main.verada.com>
+1.2.36
+	* main.cl: add request-variable-value (moved from webactions)
 
 2004-01-09  John Foderaro  <jkf@tiger.franz.com>
 1.2.35
@@ -1078,5 +1357,3 @@ join from acl50 branch
 1999-10-13  John Foderaro  <jkf@tiger.franz.com>
 1.0.1
 	*  start changelog
-	
-

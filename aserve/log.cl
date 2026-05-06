@@ -2,8 +2,8 @@
 ;;
 ;; log.cl
 ;;
-;; copyright (c) 1986-2000 Franz Inc, Berkeley, CA  - All rights reserved.
-;; copyright (c) 2000-2004 Franz Inc, Oakland, CA - All rights reserved.
+;; copyright (c) 1986-2005 Franz Inc, Berkeley, CA  - All rights reserved.
+;; copyright (c) 2000-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -24,7 +24,7 @@
 ;; Suite 330, Boston, MA  02111-1307  USA
 ;;
 ;;
-;; $Id: log.cl,v 1.12 2005/02/20 12:20:45 rudi Exp $
+;; $Id: log.cl,v 1.27 2008/02/04 19:03:59 jkf Exp $
 
 ;; Description:
 ;;   iserve's logging
@@ -36,6 +36,8 @@
 (in-package :net.aserve)
 
 (defvar *enable-logging* t) ; to turn on/off the standard logging method
+
+(defvar *save-commands* nil) ; if true then a stream to which to write commands
 
 (defmethod logmess (message)
   ;; send log message to the default vhost's error stream 
@@ -54,9 +56,9 @@
     (let* ((*print-pretty* nil)
 	   (str (format
 		 nil
-		 "~a: ~2,'0d/~2,'0d/~2,'0d - ~2,'0d:~2,'0d:~2,'0d - ~a~%"
+		 "~a: ~4,'0d-~2,'0d-~2,'0d - ~2,'0d:~2,'0d:~2,'0d - ~a~%"
 		 (acl-compat.mp:process-name acl-compat.mp:*current-process*)
-		 cmonth cday (mod cyear 100)
+		 cyear cmonth cday
 		 chour cmin csec
 		 message))
 	   (lock #+allegro (getf (excl::stream-property-list stream) :lock)
@@ -127,8 +129,7 @@
 	    (macrolet ((do-log ()
 			 '(progn (format stream
 				  "~a - - [~a] ~s ~s ~s~%"
-				  (or (header-slot-value req :x-forwarded-for) ;+++ for EC2 UNTESTED
-				      (acl-compat.socket:ipaddr-to-dotted ipaddr))
+				  (acl-compat.socket:ipaddr-to-dotted ipaddr)
 				  (maybe-universal-time-to-date time)
 				  (request-raw-request req)
 				  code
@@ -141,7 +142,30 @@
 			; get the stream again
 			(setq stream (vhost-log-stream (request-vhost req)))
 			(do-log))
-		 else (do-log))))))
+		 else (do-log)))))
+  
+  (if* *save-commands*
+     then (multiple-value-bind (ok whole uri-string)
+	      (match-re "^[^ ]+\\s+([^ ]+)" (request-raw-request req))
+	    (declare (ignore ok whole))
+	    (format *save-commands*
+		    "((:method . ~s) (:uri . ~s) (:proto . ~s) ~% (:code . ~s)~@[~% (:body . ~s)~]~@[~% (:auth .  ~s)~]~@[~% (:ctype . ~s)~])~%" 
+		    (request-method req)
+		    uri-string
+		    (request-protocol req)
+		    (let ((obj (request-reply-code req)))
+		      (if* obj
+			 then (response-number obj)
+			 else 999))
+		    (let ((bod (request-request-body req)))
+		      (and (not (equal "" bod)) bod))
+		    (multiple-value-list (get-basic-authorization req))
+		    (header-slot-value req :content-type)
+		    ))
+	  (force-output *save-commands*))
+		  
+	  
+  )
 
 	    	
     

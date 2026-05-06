@@ -2,8 +2,8 @@
 ;;
 ;; decode.cl
 ;;
-;; copyright (c) 1986-2000 Franz Inc, Berkeley, CA  - All rights reserved.
-;; copyright (c) 2000-2004 Franz Inc, Oakland, CA - All rights reserved.
+;; copyright (c) 1986-2005 Franz Inc, Berkeley, CA  - All rights reserved.
+;; copyright (c) 2000-2007 Franz Inc, Oakland, CA - All rights reserved.
 ;;
 ;; This code is free software; you can redistribute it and/or
 ;; modify it under the terms of the version 2.1 of
@@ -25,7 +25,7 @@
 ;;
 
 ;;
-;; $Id: decode.cl,v 1.10 2005/02/20 12:20:45 rudi Exp $
+;; $Id: decode.cl,v 1.22 2007/04/17 22:05:04 layer Exp $
 
 ;; Description:
 ;;   decode/encode code
@@ -152,7 +152,9 @@
 					       then (+ ,code
 						       #.(char-code #\0))
 					       else (+ (- ,code 10)
-						       #.(char-code #\a)))))
+;;;; Amazon's EC2 requires that an uppercase character be used here,
+;;;; otherwise the signing of EC2 requests via the REST API don't match.
+						       #.(char-code #\A)))))
 				(let* ((upcode (logand #xf (ash code -4)))
 				       (downcode (logand #xf code)))
 				  (setf (aref newmbvec (+ j 1))
@@ -172,7 +174,7 @@
 			       :end (+ len (* 2 count)))))))))
 
 
-#-allegro
+#-(or allegro sbcl)
 (defun uriencode-string (str &key (external-format 
                                    *default-aserve-external-format*))
   ;; encode the given string using uri encoding.
@@ -185,6 +187,47 @@
                              :for i :from 0 :below len
                              :do (setf (aref result i) (char-code (aref str i)))
                              :finally (return result))))
+      ;; count the number of encodings that must be done
+      (dotimes (i len)
+	(if* (uri-encode-p (aref byte-string i)) then (incf count)))
+
+      (if (zerop count)
+	  str ;; just return the string, no encoding done
+          (let* ((newstr (make-string (+ len (* 2 count))))
+                 (j 0))
+            (dotimes (i len)
+              (let ((code (aref byte-string i)))
+                (if (uri-encode-p code)
+                    (progn
+                      (setf (aref newstr j) #\%)
+                      (macrolet ((hexdig (code)
+                                   ;; return char code of hex digit
+                                   `(if* (< ,code 10)
+                                         then (code-char (+ ,code
+                                                            #.(char-code #\0)))
+                                         else (code-char(+ (- ,code 10)
+                                                           #.(char-code #\a))))))
+                        (let* ((upcode (logand #xf (ash code -4)))
+                               (downcode (logand #xf code)))
+                          (setf (aref newstr (+ j 1))
+                                (hexdig upcode))
+                          (setf (aref newstr (+ j 2))
+                                (hexdig downcode))))
+                      (incf j 3))
+                    (progn
+                      (setf (aref newstr j) (code-char code))
+                      (incf j)))))
+            newstr)))))
+
+#+sbcl
+(defun uriencode-string (str &key (external-format 
+                                   *default-aserve-external-format*))
+  ;; encode the given string using uri encoding.
+  ;; It may return the same string if no encoding need be done
+  ;;
+  (let ((byte-string (sb-ext:string-to-octets str :external-format external-format)))
+    (let ((len (length byte-string))
+          (count 0))
       ;; count the number of encodings that must be done
       (dotimes (i len)
 	(if* (uri-encode-p (aref byte-string i)) then (incf count)))
@@ -454,7 +497,7 @@
 
 (defmacro with-unhex-cvt-buffer ((buffer-var size)
 				 &body body)
-  #-(and allegro (version>= 6 0))
+  #-(or (and allegro (version>= 6 0)) sbcl)
   ;; Buffer is a string, which gets returned
   `(let ((,buffer-var (make-string ,size)))
      (macrolet ((cvt-buf-to-string (x &key external-format end)
@@ -464,6 +507,18 @@
 		  `(setf (schar ,buf ,i) ,char))
 		(buf-elt (buf i)
 		  `(schar ,buf ,i)))
+       ,@body))
+
+  #+sbcl
+  ;; Buffer is a UTF-8 string, convert it to latin1 string
+  `(let ((,buffer-var (make-string ,size)))
+     (macrolet ((cvt-buf-to-string (x &key external-format end)
+                  `(let ((octets (sb-ext:string-to-octets ,x :end ,end :external-format :latin1)))
+                     (sb-ext:octets-to-string octets :external-format ,external-format)))
+                (set-buf-elt (buf i char)
+                  `(setf (schar ,buf ,i) ,char))
+                (buf-elt (buf i)
+                  `(schar ,buf ,i)))
        ,@body))
 
   #+(and allegro (version>= 6 0))
