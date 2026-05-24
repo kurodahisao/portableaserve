@@ -27,6 +27,7 @@
   #+sbcl (:import-from :sb-int #:fixnump)
   #+sbcl (:import-from :sb-ext #:without-package-locks)
   #+sbcl (:import-from :sb-ext #:string-to-octets)
+  #+sbcl (:import-from :sb-ext #:octets-to-string)
   #+cmu (:import-from :ext #:without-package-locks)
   #+allegro (:shadowing-import-from :excl #:filesys-size
 	    #:filesys-write-date #:intern* #:filesys-type #:atomically #:fast)
@@ -53,6 +54,7 @@
    #+(or allegro mcl openmcl) #:fasl-read
    #+(or allegro mcl openmcl) #:fasl-write
    #+(or allegro cmu scl mcl lispworks openmcl sbcl) #:string-to-octets
+   #+(or allegro cmu scl mcl lispworks openmcl sbcl) #:octets-to-string
    #+(or allegro cmu scl mcl lispworks openmcl sbcl) #:write-vector
    #:md5-init
    #:md5-update
