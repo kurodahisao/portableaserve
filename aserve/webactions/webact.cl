@@ -263,10 +263,6 @@
 (defun webaction-from-ent (ent)
   (getf (entity-plist ent) 'webaction))
 
-#+sbcl
-(defun latin1-to-utf8 (string)
-  (sb-ext:octets-to-string (string-to-octets string :external-format :latin1)))
-
 (defun webaction-entity (req ent)
   ;; handle a request in the uri-space of this project
   
@@ -470,7 +466,7 @@
 	     then (if* failed-following
 		     then (logmess (format nil "no map for webaction ~s"
 					       #-sbcl failed-following
-                                               #+sbcl (latin1-to-utf8 failed-following))))
+                                               #+sbcl (latin1-to-string failed-following))))
 		  (return-from webaction-entity (failed-request req)))
 
 	  (let ((new-ent (clp-directory-entity-publisher

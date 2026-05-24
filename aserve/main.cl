@@ -1859,7 +1859,12 @@ by keyword symbols and not by strings"
       ("CONNECT " . :connect)))
   
 
-	    
+(defun latin1-to-string (latin1-string
+                         &key (external-format :default) (start 0) end null-terminate)
+  (octets-to-string (string-to-octets latin1-string :external-format :latin1
+                                      :start start :end end
+                                      :null-terminate null-terminate)
+                    :external-format external-format))	    
 
 (defmethod get-request-body ((req http-request)
 			     &key (external-format :octets ef-supplied))
@@ -1871,9 +1876,7 @@ by keyword symbols and not by strings"
 		(get-request-body-retrieve req)))))
     (if* ef-supplied			; spr27296
        then (values
-	     (octets-to-string
-	      (string-to-octets result :external-format :octets)
-	      :external-format external-format))
+	     (latin1-to-string result :external-format external-format))
        else result)))
 
 

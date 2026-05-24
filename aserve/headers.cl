@@ -631,7 +631,7 @@
 
 (defun buffer-subseq-to-string (buff start end)
   ;; extract a subsequence of the usb8 buff and return it as a string
-  (sb-ext:octets-to-string buff :start start :end end :external-format *default-aserve-external-format*)
+  (octets-to-string buff :start start :end end :external-format *default-aserve-external-format*)
   #+ignore
   (let ((str (make-string (- end start))))
     (do ((i start (1+ i))

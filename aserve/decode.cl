@@ -513,8 +513,7 @@
   ;; Buffer is a UTF-8 string, convert it to latin1 string
   `(let ((,buffer-var (make-string ,size)))
      (macrolet ((cvt-buf-to-string (x &key external-format end)
-                  `(let ((octets (sb-ext:string-to-octets ,x :end ,end :external-format :latin1)))
-                     (sb-ext:octets-to-string octets :external-format ,external-format)))
+                  `(latin1-to-string ,x :end ,end :external-format ,external-format))
                 (set-buf-elt (buf i char)
                   `(setf (schar ,buf ,i) ,char))
                 (buf-elt (buf i)
