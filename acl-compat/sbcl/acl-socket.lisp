@@ -35,6 +35,7 @@
     (format stream "datagram socket listening on port ~d" (port socket))))
 
 (defgeneric accept-connection (socket &key wait))
+#+ignore
 (defmethod accept-connection ((server-socket server-socket)
 			      &key (wait t))
   "Return a bidirectional stream connected to socket."
@@ -51,6 +52,26 @@
             (make-bivalent-stream stream :plist `(:socket ,socket))
             stream))
       nil))
+(defmethod accept-connection ((server-socket server-socket) &key (wait t))
+  "Return a bidirectional stream connected to socket. Patched for Windows SBCL CPU optimization."
+  (let ((fd (socket-file-descriptor (socket server-socket))))
+    (loop
+      ;; Directly check the Windows socket handle without entering SBCL's broken wait loop.
+      ;; (sb-win32:handle-listen fd 0 0) returns T instantly if a connection is waiting.
+      (if (sb-win32:handle-listen fd 0 0)
+          ;; Connection found! Accept it and build the stream immediately.
+          (let* ((socket (socket-accept (socket server-socket)))
+                 (stream (socket-make-stream socket
+                                             :input t :output t
+                                             :element-type (element-type server-socket))))
+            (return 
+              (if (eq (stream-type server-socket) :bivalent)
+                  (make-bivalent-stream stream :plist `(:socket ,socket))
+                  stream)))
+          ;; No connection waiting.
+          (if (not wait)
+              (return nil)      ; Exit immediately if we aren't supposed to wait
+              (sleep 0.01)))))) ; Sleep 10ms cleanly before checking the socket handle again
 
 (defmethod receive-from ((socket datagram-socket) size &key buffer extract)
   (multiple-value-bind (rbuf len address port)
