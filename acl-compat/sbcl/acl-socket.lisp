@@ -35,7 +35,7 @@
     (format stream "datagram socket listening on port ~d" (port socket))))
 
 (defgeneric accept-connection (socket &key wait))
-#+ignore
+#-windows
 (defmethod accept-connection ((server-socket server-socket)
 			      &key (wait t))
   "Return a bidirectional stream connected to socket."
@@ -52,6 +52,7 @@
             (make-bivalent-stream stream :plist `(:socket ,socket))
             stream))
       nil))
+#+windows
 (defmethod accept-connection ((server-socket server-socket) &key (wait t))
   "Return a bidirectional stream connected to socket. Patched for Windows SBCL CPU optimization."
   (let ((fd (socket-file-descriptor (socket server-socket))))
